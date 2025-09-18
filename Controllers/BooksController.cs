@@ -132,17 +132,25 @@ public class BooksController : ControllerBase
         return Ok(books);
     }
 
-    // 2) Liệt kê Author có trên 2 cuốn sách
-    // GET: api/books/authors-gt2
-    [HttpGet("authors-gt2")]
-    public async Task<ActionResult<IEnumerable<AuthorMiniDto>>> GetAuthorsWithMoreThanTwoBooks()
-    {
-        var authors = await _db.Authors
-            .Where(a => a.Books.Count() > 2)
-            .Select(a => new AuthorMiniDto { AuthorId = a.AuthorId, Name = a.Name })
-            .ToListAsync();
-        return Ok(authors);
-    }
+    // GET: api/books/authors-gt2-groupby
+// Mục đích: Tác giả có > 2 sách, dùng GROUP BY + COUNT
+[HttpGet("authors-gt2-groupby")]
+public async Task<ActionResult<IEnumerable<AuthorMiniDto>>> GetAuthorsWithMoreThanTwoBooks_GroupBy()
+{
+    var authors = await _db.Authors
+        // “nổ” quan hệ Many-to-Many: mỗi (Author, Book) là 1 bản ghi
+        .SelectMany(a => a.Books.Select(b => new { a.AuthorId, a.Name }))
+        // GroupBy theo tác giả
+        .GroupBy(x => new { x.AuthorId, x.Name })
+        // Count từng nhóm > 2
+        .Where(g => g.Count() > 2)
+        // Trả về DTO gọn
+        .Select(g => new AuthorMiniDto { AuthorId = g.Key.AuthorId, Name = g.Key.Name })
+        .ToListAsync();
+
+    return Ok(authors);
+}
+
 
     // 3) Tìm các sách xuất bản sau năm X (mặc định 2015)
     // GET: api/books/after-year/{year?}
