@@ -1,0 +1,191 @@
+using AuthorBookApi.Data;
+using AuthorBookApi.Dtos;
+using AuthorBookApi.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace AuthorBookApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class BooksController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    public BooksController(AppDbContext db) => _db = db;
+
+    // POST: api/books
+    [HttpPost]
+    public async Task<ActionResult<Book>> Create([FromBody] CreateBookDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return BadRequest("Title is required.");
+
+        var book = new Book { Title = dto.Title.Trim(), PublishedYear = dto.PublishedYear };
+        _db.Books.Add(book);
+        await _db.SaveChangesAsync();
+        return CreatedAtAction(nameof(GetById), new { id = book.BookId }, book);
+    }
+
+    // GET: api/books/{id}
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<BookDto>> GetById(int id)
+    {
+        var b = await _db.Books
+            .Include(b => b.Authors)
+            .Include(b => b.Publisher)
+            .FirstOrDefaultAsync(b => b.BookId == id);
+
+        if (b is null) return NotFound();
+
+        var dto = new BookDto
+        {
+            BookId = b.BookId,
+            Title = b.Title,
+            PublishedYear = b.PublishedYear,
+            Publisher = b.Publisher is null ? null : new PublisherMiniDto
+            {
+                PublisherId = b.Publisher.PublisherId,
+                Name = b.Publisher.Name
+            },
+            Authors = b.Authors.Select(a => new AuthorMiniDto
+            {
+                AuthorId = a.AuthorId,
+                Name = a.Name
+            }).ToList()
+        };
+        return Ok(dto);
+    }
+
+    // GET: api/books  (kèm Author & Publisher)
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<BookDto>>> GetAll()
+    {
+        var data = await _db.Books
+            .Include(b => b.Authors)
+            .Include(b => b.Publisher)
+            .Select(b => new BookDto
+            {
+                BookId = b.BookId,
+                Title = b.Title,
+                PublishedYear = b.PublishedYear,
+                Publisher = b.Publisher == null ? null : new PublisherMiniDto
+                {
+                    PublisherId = b.Publisher.PublisherId,
+                    Name = b.Publisher.Name
+                },
+                Authors = b.Authors.Select(a => new AuthorMiniDto
+                {
+                    AuthorId = a.AuthorId,
+                    Name = a.Name
+                }).ToList()
+            })
+            .ToListAsync();
+
+        return Ok(data);
+    }
+
+    // POST: api/books/{bookId}/attach-author/{authorId}
+    [HttpPost("{bookId:int}/attach-author/{authorId:int}")]
+    public async Task<IActionResult> AttachAuthor(int bookId, int authorId)
+    {
+        var book = await _db.Books.Include(b => b.Authors)
+            .FirstOrDefaultAsync(b => b.BookId == bookId);
+        if (book is null) return NotFound($"Book {bookId} not found");
+
+        var author = await _db.Authors.FindAsync(authorId);
+        if (author is null) return NotFound($"Author {authorId} not found");
+
+        if (!book.Authors.Any(a => a.AuthorId == authorId))
+        {
+            book.Authors.Add(author);
+            await _db.SaveChangesAsync();
+        }
+        return NoContent();
+    }
+
+    // POST: api/books/{bookId}/set-publisher/{publisherId}
+    [HttpPost("{bookId:int}/set-publisher/{publisherId:int}")]
+    public async Task<IActionResult> SetPublisher(int bookId, int publisherId)
+    {
+        var book = await _db.Books.FindAsync(bookId);
+        if (book is null) return NotFound($"Book {bookId} not found");
+
+        var publisher = await _db.Publishers.FindAsync(publisherId);
+        if (publisher is null) return NotFound($"Publisher {publisherId} not found");
+
+        book.PublisherId = publisherId;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // ========= LINQ QUERIES =========
+
+    // 1) Tìm tất cả sách của một Author
+    // GET: api/books/by-author/{authorId}
+    [HttpGet("by-author/{authorId:int}")]
+    public async Task<ActionResult<IEnumerable<BookMiniDto>>> GetBooksByAuthor(int authorId)
+    {
+        var books = await _db.Books
+            .Where(b => b.Authors.Any(a => a.AuthorId == authorId))
+            .Select(b => new BookMiniDto { BookId = b.BookId, Title = b.Title })
+            .ToListAsync();
+        return Ok(books);
+    }
+
+    // 2) Liệt kê Author có trên 2 cuốn sách
+    // GET: api/books/authors-gt2
+    [HttpGet("authors-gt2")]
+    public async Task<ActionResult<IEnumerable<AuthorMiniDto>>> GetAuthorsWithMoreThanTwoBooks()
+    {
+        var authors = await _db.Authors
+            .Where(a => a.Books.Count() > 2)
+            .Select(a => new AuthorMiniDto { AuthorId = a.AuthorId, Name = a.Name })
+            .ToListAsync();
+        return Ok(authors);
+    }
+
+    // 3) Tìm các sách xuất bản sau năm X (mặc định 2015)
+    // GET: api/books/after-year/{year?}
+    [HttpGet("after-year/{year:int?}")]
+    public async Task<ActionResult<IEnumerable<BookMiniDto>>> GetBooksAfterYear(int? year = 2015)
+    {
+        int y = year ?? 2015;
+        var books = await _db.Books
+            .Where(b => b.PublishedYear != null && b.PublishedYear > y)
+            .Select(b => new BookMiniDto { BookId = b.BookId, Title = b.Title })
+            .ToListAsync();
+        return Ok(books);
+    }
+
+    // 4) Liệt kê Publisher có ít nhất n cuốn sách (mặc định 3)
+    // GET: api/books/publishers-atleast/{min?}
+    [HttpGet("publishers-atleast/{min:int?}")]
+    public async Task<ActionResult<IEnumerable<PublisherMiniDto>>> GetPublishersWithAtLeast(int? min = 3)
+    {
+        int m = min ?? 3;
+        var pubs = await _db.Publishers
+            .Where(p => p.Books.Count() >= m)
+            .Select(p => new PublisherMiniDto { PublisherId = p.PublisherId, Name = p.Name })
+            .ToListAsync();
+        return Ok(pubs);
+    }
+
+    // 5) Join Author–Book–Publisher: Tên tác giả – Tên sách – Nhà xuất bản
+    // GET: api/books/join-abp
+    [HttpGet("join-abp")]
+    public async Task<ActionResult<IEnumerable<object>>> JoinAuthorBookPublisher()
+    {
+        var q = await _db.Books
+            .Include(b => b.Authors)
+            .Include(b => b.Publisher)
+            .SelectMany(b => b.Authors.Select(a => new
+            {
+                AuthorName = a.Name,
+                BookTitle = b.Title,
+                PublisherName = b.Publisher != null ? b.Publisher.Name : "(No Publisher)"
+            }))
+            .ToListAsync();
+
+        return Ok(q);
+    }
+}
