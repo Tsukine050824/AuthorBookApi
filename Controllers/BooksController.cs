@@ -170,22 +170,54 @@ public class BooksController : ControllerBase
         return Ok(pubs);
     }
 
-    // 5) Join Author–Book–Publisher: Tên tác giả – Tên sách – Nhà xuất bản
     // GET: api/books/join-abp
-    [HttpGet("join-abp")]
-    public async Task<ActionResult<IEnumerable<object>>> JoinAuthorBookPublisher()
-    {
-        var q = await _db.Books
-            .Include(b => b.Authors)
-            .Include(b => b.Publisher)
-            .SelectMany(b => b.Authors.Select(a => new
-            {
-                AuthorName = a.Name,
-                BookTitle = b.Title,
-                PublisherName = b.Publisher != null ? b.Publisher.Name : "(No Publisher)"
-            }))
-            .ToListAsync();
+[HttpGet("join-abp")]
+// GET: api/books/join-abp
+// Mục đích: Truy vấn dữ liệu kết hợp (Join) giữa Author – Book – Publisher
+// Trả về: Danh sách (AuthorName, BookTitle, PublisherName)
+// Ví dụ JSON:
+/*
+[
+  { "authorName": "Nguyễn Nhật Ánh", "bookTitle": "Mắt biếc", "publisherName": "NXB Trẻ" },
+  { "authorName": "Haruki Murakami", "bookTitle": "Rừng Na Uy", "publisherName": "Vintage" }
+]
+*/
+[HttpGet("join-abp")]
+public async Task<ActionResult<IEnumerable<object>>> JoinAuthorBookPublisher()
+{
+    // 1) Lấy dữ liệu thô từ DB:
+    //    - BookTitle
+    //    - PublisherName (nếu null => "(No Publisher)")
+    //    - Authors (danh sách tên tác giả cho từng Book)
+    // EF Core sẽ dịch ra SQL đơn giản (LEFT JOIN), sau đó trả dữ liệu vào bộ nhớ.
+    var rows = await _db.Books
+        .Select(b => new
+        {
+            BookTitle = b.Title,
+            PublisherName = b.Publisher != null ? b.Publisher.Name : "(No Publisher)",
+            Authors = b.Authors.Select(a => a.Name).ToList() // list tên tác giả
+        })
+        .AsNoTracking() // không cần tracking EF để tối ưu
+        .ToListAsync();
 
-        return Ok(q);
-    }
+    // 2) Flatten dữ liệu trong bộ nhớ (LINQ to Objects):
+    //    - Vì mỗi Book có thể có nhiều Authors
+    //    - Sử dụng SelectMany để “nổ” từng Author thành 1 dòng riêng
+    //    - Nếu sách chưa có tác giả nào -> gán "(No Author)"
+    var result = rows
+        .SelectMany(
+            r => r.Authors.DefaultIfEmpty("(No Author)"),
+            (r, authorName) => new
+            {
+                AuthorName = authorName,
+                BookTitle = r.BookTitle,
+                PublisherName = r.PublisherName
+            })
+        .ToList();
+
+    // 3) Trả kết quả về cho client (Swagger/Postman)
+    return Ok(result);
+}
+
+
 }

@@ -131,3 +131,4 @@ C:\Users\86341\Dotnet bruh\AuthorBookApi\obj\Debug\net9.0\refint\AuthorBookApi.d
 C:\Users\86341\Dotnet bruh\AuthorBookApi\obj\Debug\net9.0\AuthorBookApi.pdb
 C:\Users\86341\Dotnet bruh\AuthorBookApi\obj\Debug\net9.0\AuthorBookApi.genruntimeconfig.cache
 C:\Users\86341\Dotnet bruh\AuthorBookApi\obj\Debug\net9.0\ref\AuthorBookApi.dll
+C:\Users\86341\Dotnet bruh\AuthorBookApi\obj\Debug\net9.0\AuthorBookApi.sourcelink.json
